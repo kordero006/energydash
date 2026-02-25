@@ -93,7 +93,17 @@
                     <tbody class="divide-y divide-slate-700/30 text-sm">
                         <?php if (!empty($readings)): foreach($readings as $r): ?>
                         <tr class="hover:bg-slate-800/20">
-                            <td class="p-4 text-slate-400"><?= date('d M, H:i:s', strtotime($r['created_at'])) ?></td>
+                            <td class="p-4 text-slate-400">
+                                <script>
+                                    document.write(new Date("<?= $r['created_at'] ?>").toLocaleString([], {
+                                        day: '2-digit', 
+                                        month: 'short', 
+                                        hour: '2-digit', 
+                                        minute: '2-digit', 
+                                        second: '2-digit'
+                                    }));
+                                </script>
+                            </td>
                             <td class="p-4 font-bold text-white"><?= $r['power'] ?? 0 ?> W</td>
                             <td class="p-4 text-amber-500"><?= $r['current'] ?? 0 ?> A</td>
                         </tr>
