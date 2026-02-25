@@ -117,124 +117,126 @@
     </div>
 
     |<script>
-        // 1. Inicialización de la Gráfica
-        const ctx = document.getElementById('mainEnergyChart').getContext('2d');
-        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-        gradient.addColorStop(0, 'rgba(56, 189, 248, 0.3)');
-        gradient.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    // 1. Configuración de la Gráfica (Efecto Monitor Cardíaco)
+    const ctx = document.getElementById('mainEnergyChart').getContext('2d');
+    const MAX_POINTS = 30; // Cuántos segundos queremos ver en pantalla
+    
+    // Inicializamos arreglos locales para que la gráfica siempre tenga datos
+    let liveLabels = new Array(MAX_POINTS).fill("--:--:--");
+    let liveData = new Array(MAX_POINTS).fill(0);
 
-        let energyChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Consumo (W)',
-                    data: [],
-                    borderColor: '#38BDF8',
-                    borderWidth: 3,
-                    fill: true,
-                    backgroundColor: gradient,
-                    tension: 0.4,
-                    pointRadius: 2,
-                    pointBackgroundColor: '#38BDF8'
-                }]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false, 
-                animation: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { 
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: { color: '#94a3b8' },
-                        beginAtZero: false,
-                        suggestedMin: (val) => val.min - 10,
-                        suggestedMax: (val) => val.max + 10
-                    },
-                    x: { 
-                        grid: { display: false },
-                        ticks: { color: '#94a3b8' }
-                    }
-                }
-            }
-        });
+    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(56, 189, 248, 0.3)');
+    gradient.addColorStop(1, 'rgba(56, 189, 248, 0)');
 
-        // 2. Variables de Control de Alertas
-        const alertSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-        let isSwalActive = false; 
-        let lastAlertTimestamp = null; // Guarda la hora de la anomalía ya aceptada
-
-        async function updateDashboard() {
-            try {
-                const response = await fetch('api.php?view=<?= $currentFilter ?? 'today' ?>');
-                const data = await response.json();
-
-                if (!data || !data.latest) return;
-
-                // Actualizar Widgets Numéricos
-                document.getElementById('val-power').innerText = parseFloat(data.latest.power).toFixed(1);
-                document.getElementById('val-current').innerText = parseFloat(data.latest.current).toFixed(2);
-                document.getElementById('ai-stats').innerText = `Z-Score: ${data.ai.score} | Media: ${data.ai.mean}W`;
-
-                const aiCard = document.getElementById('ai-card');
-                const aiLabel = document.getElementById('ai-label');
-
-                // --- LÓGICA DE ALERTAS INTELIGENTE ---
-                if (data.ai.is_anomaly) {
-                    // UI en estado de alerta (Rojo parpadeante)
-                    aiCard.className = "md:col-span-2 p-6 rounded-3xl border transition-all duration-500 bg-rose-600 border-white animate-pulse shadow-[0_0_50px_rgba(244,63,94,0.6)]";
-                    aiLabel.innerText = data.ai.reason; 
-                    aiLabel.className = "text-2xl font-black text-white";
-                    document.title = "⚠️ ANOMALÍA DETECTADA";
-
-                    // Solo mostramos SweetAlert si es una anomalía NUEVA (diferente timestamp)
-                    if (!isSwalActive && data.latest.created_at !== lastAlertTimestamp) {
-                        isSwalActive = true;
-                        alertSound.play().catch(e => console.log("Audio bloqueado"));
-
-                        Swal.fire({
-                            title: '¡ALERTA DE SISTEMA!',
-                            html: `<b style="font-size: 2rem; color: #f43f5e;">${data.latest.power} W</b><br>${data.ai.reason}<br><small style="color:#94a3b8">Registro: ${data.latest.created_at}</small>`,
-                            icon: 'error',
-                            background: '#1e293b',
-                            color: '#fff',
-                            confirmButtonText: 'ENTENDIDO',
-                            confirmButtonColor: '#e11d48',
-                            backdrop: `rgba(244, 63, 94, 0.4)`,
-                            allowOutsideClick: false,
-                            showClass: { popup: 'animate__animated animate__headShake' }
-                        }).then(() => {
-                            // Al cerrar, guardamos este timestamp para no repetir la alerta
-                            lastAlertTimestamp = data.latest.created_at;
-                            isSwalActive = false;
-                        });
-                    }
-                } else {
-                    // Estado Normal (Verde)
-                    aiCard.className = "md:col-span-2 p-6 rounded-3xl border border-slate-700/50 bg-[#1E293B]";
-                    aiLabel.innerText = "✓ CONSUMO ESTABLE";
-                    aiLabel.className = "text-2xl font-bold text-emerald-500";
-                    document.title = "EnergyDash | Live";
-                    
-                    // Si el sistema vuelve a la normalidad, limpiamos el historial de alertas
-                    lastAlertTimestamp = null;
-                }
-
-                // 3. Actualizar Gráfica
-                const readings = [...data.readings].reverse();
-                energyChart.data.labels = readings.map(r => new Date(r.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}));
-                energyChart.data.datasets[0].data = readings.map(r => r.power);
-                energyChart.update('none');
-
-            } catch (e) { 
-                console.error("Error en monitoreo:", e); 
+    let energyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: liveLabels,
+            datasets: [{
+                label: 'Consumo (W)',
+                data: liveData,
+                borderColor: '#38BDF8',
+                borderWidth: 3,
+                fill: true,
+                backgroundColor: gradient,
+                tension: 0.4,
+                pointRadius: 0 // Sin puntos para que se vea como monitor médico
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            animation: false, // Animación false para que el scroll sea fluido
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { 
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    suggestedMin: 0,
+                    suggestedMax: 200 // Se ajustará solo si hay picos
+                },
+                x: { grid: { display: false } }
             }
         }
+    });
 
-        // Monitoreo cada 1 segundo
-        setInterval(updateDashboard, 1000);
-        updateDashboard();
-    </script>
+    // 2. Control de Alertas y Memoria
+    const alertSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+    let isSwalActive = false; 
+    let lastAlertTimestamp = null;
+
+    async function updateDashboard() {
+        try {
+            const response = await fetch('api.php?view=<?= $currentFilter ?? 'today' ?>');
+            const data = await response.json();
+
+            // Lógica de "Reloj de Arena":
+            // Comparamos la hora actual vs la hora del último dato en la DB
+            let powerNow = 0;
+            let timeLabel = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+
+            if (data.latest) {
+                const lastSeen = new Date(data.latest.created_at);
+                const secondsSinceUpdate = (new Date() - lastSeen) / 1000;
+
+                // Si el dato tiene menos de 5 segundos, el dispositivo está "vivo"
+                if (secondsSinceUpdate < 5) {
+                    powerNow = parseFloat(data.latest.power);
+                    timeLabel = lastSeen.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                    
+                    // Actualizar widgets numéricos solo si está vivo
+                    document.getElementById('val-power').innerText = powerNow.toFixed(1);
+                    document.getElementById('val-current').innerText = parseFloat(data.latest.current).toFixed(2);
+                } else {
+                    // Si el dato es viejo, mostramos 0 en los widgets
+                    document.getElementById('val-power').innerText = "0.0";
+                    document.getElementById('val-current').innerText = "0.00";
+                }
+            }
+
+            // --- EL EFECTO SCROLL ---
+            // Quitamos el dato más viejo y metemos el nuevo (ya sea power o 0)
+            liveLabels.push(timeLabel);
+            liveData.push(powerNow);
+            liveLabels.shift();
+            liveData.shift();
+
+            // Actualizar gráfica
+            energyChart.update('none');
+
+            // --- LÓGICA DE ALERTAS (Se mantiene igual para seguridad) ---
+            if (data.ai && data.ai.is_anomaly && powerNow > 0) {
+                const aiCard = document.getElementById('ai-card');
+                const aiLabel = document.getElementById('ai-label');
+                
+                aiCard.className = "md:col-span-2 p-6 rounded-3xl border transition-all duration-500 bg-rose-600 border-white animate-pulse shadow-[0_0_50px_rgba(244,63,94,0.6)]";
+                aiLabel.innerText = data.ai.reason;
+                document.getElementById('ai-stats').innerText = `Z-Score: ${data.ai.score} | Media: ${data.ai.mean}W`;
+
+                if (!isSwalActive && data.latest.created_at !== lastAlertTimestamp) {
+                    isSwalActive = true;
+                    alertSound.play().catch(e => {});
+                    Swal.fire({
+                        title: '¡ALERTA!',
+                        html: `Detectado: ${powerNow} W`,
+                        icon: 'error',
+                        confirmButtonText: 'ENTENDIDO'
+                    }).then(() => {
+                        lastAlertTimestamp = data.latest.created_at;
+                        isSwalActive = false;
+                    });
+                }
+            } else if (powerNow === 0) {
+                document.getElementById('ai-label').innerText = "OFFLINE / ESPERA";
+                document.getElementById('ai-card').className = "md:col-span-2 p-6 rounded-3xl border border-slate-700/50 bg-[#1E293B]";
+            }
+
+        } catch (e) { console.error("Error Live:", e); }
+    }
+
+    // Intervalo de 1 segundo exacto para el efecto monitor
+    setInterval(updateDashboard, 1000);
+    updateDashboard();
+</script>
 </body>
 </html>
