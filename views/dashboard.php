@@ -117,16 +117,16 @@
     </div>
 
     |<script>
-    // 1. Configuración de la Gráfica (Efecto Monitor Cardíaco)
+    // 1. Inicialización del "Monitor Cardíaco" (Scroll Continuo)
     const ctx = document.getElementById('mainEnergyChart').getContext('2d');
-    const MAX_POINTS = 30; // Cuántos segundos queremos ver en pantalla
+    const MAX_POINTS = 30; // Segundos visibles en pantalla
     
-    // Inicializamos arreglos locales para que la gráfica siempre tenga datos
+    // Arreglos fijos para que la gráfica siempre se mueva
     let liveLabels = new Array(MAX_POINTS).fill("--:--:--");
     let liveData = new Array(MAX_POINTS).fill(0);
 
     const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-    gradient.addColorStop(0, 'rgba(56, 189, 248, 0.3)');
+    gradient.addColorStop(0, 'rgba(56, 189, 248, 0.4)');
     gradient.addColorStop(1, 'rgba(56, 189, 248, 0)');
 
     let energyChart = new Chart(ctx, {
@@ -141,26 +141,27 @@
                 fill: true,
                 backgroundColor: gradient,
                 tension: 0.4,
-                pointRadius: 0 // Sin puntos para que se vea como monitor médico
+                pointRadius: 0 // Estilo médico, sin puntos
             }]
         },
         options: { 
             responsive: true, 
             maintainAspectRatio: false, 
-            animation: false, // Animación false para que el scroll sea fluido
+            animation: false, // Scroll fluido
             plugins: { legend: { display: false } },
             scales: {
                 y: { 
                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#94a3b8' },
                     suggestedMin: 0,
-                    suggestedMax: 200 // Se ajustará solo si hay picos
+                    suggestedMax: 200 
                 },
-                x: { grid: { display: false } }
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
             }
         }
     });
 
-    // 2. Control de Alertas y Memoria
+    // 2. Variables de Control Agresivo
     const alertSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
     let isSwalActive = false; 
     let lastAlertTimestamp = null;
@@ -170,71 +171,85 @@
             const response = await fetch('api.php?view=<?= $currentFilter ?? 'today' ?>');
             const data = await response.json();
 
-            // Lógica de "Reloj de Arena":
-            // Comparamos la hora actual vs la hora del último dato en la DB
             let powerNow = 0;
             let timeLabel = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
 
-            if (data.latest) {
+            if (data && data.latest) {
+                // Cálculo de desfase: ¿El dispositivo sigue enviando datos?
                 const lastSeen = new Date(data.latest.created_at);
                 const secondsSinceUpdate = (new Date() - lastSeen) / 1000;
 
-                // Si el dato tiene menos de 5 segundos, el dispositivo está "vivo"
+                // Si pasaron más de 5 segundos sin datos nuevos, forzamos a 0W
                 if (secondsSinceUpdate < 5) {
                     powerNow = parseFloat(data.latest.power);
                     timeLabel = lastSeen.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
                     
-                    // Actualizar widgets numéricos solo si está vivo
+                    // Actualizar números en pantalla
                     document.getElementById('val-power').innerText = powerNow.toFixed(1);
                     document.getElementById('val-current').innerText = parseFloat(data.latest.current).toFixed(2);
                 } else {
-                    // Si el dato es viejo, mostramos 0 en los widgets
+                    // DISPOSITIVO OFFLINE: Caída a cero
+                    powerNow = 0;
                     document.getElementById('val-power').innerText = "0.0";
                     document.getElementById('val-current').innerText = "0.00";
                 }
             }
 
-            // --- EL EFECTO SCROLL ---
-            // Quitamos el dato más viejo y metemos el nuevo (ya sea power o 0)
+            // --- EFECTO MONITOR CARDÍACO ---
             liveLabels.push(timeLabel);
             liveData.push(powerNow);
             liveLabels.shift();
             liveData.shift();
-
-            // Actualizar gráfica
             energyChart.update('none');
 
-            // --- LÓGICA DE ALERTAS (Se mantiene igual para seguridad) ---
-            if (data.ai && data.ai.is_anomaly && powerNow > 0) {
-                const aiCard = document.getElementById('ai-card');
-                const aiLabel = document.getElementById('ai-label');
-                
-                aiCard.className = "md:col-span-2 p-6 rounded-3xl border transition-all duration-500 bg-rose-600 border-white animate-pulse shadow-[0_0_50px_rgba(244,63,94,0.6)]";
-                aiLabel.innerText = data.ai.reason;
-                document.getElementById('ai-stats').innerText = `Z-Score: ${data.ai.score} | Media: ${data.ai.mean}W`;
+            // --- LÓGICA DE ALERTA AGRESIVA ---
+            const aiCard = document.getElementById('ai-card');
+            const aiLabel = document.getElementById('ai-label');
 
+            if (data.ai && data.ai.is_anomaly && powerNow > 0) {
+                // UI de Impacto (Rojo parpadeante constante mientras haya anomalía)
+                aiCard.className = "md:col-span-2 p-6 rounded-3xl border transition-all duration-500 bg-rose-600 border-white animate-pulse shadow-[0_0_50px_rgba(244,63,94,0.6)]";
+                aiLabel.innerText = data.ai.reason; 
+                aiLabel.className = "text-2xl font-black text-white";
+                document.getElementById('ai-stats').innerText = `Z-Score: ${data.ai.score} | Media: ${data.ai.mean}W`;
+                document.title = "⚠️ EMERGENCIA DETECTADA";
+
+                // Lanzar SweetAlert solo si es una anomalía nueva
                 if (!isSwalActive && data.latest.created_at !== lastAlertTimestamp) {
                     isSwalActive = true;
                     alertSound.play().catch(e => {});
+
                     Swal.fire({
-                        title: '¡ALERTA!',
-                        html: `Detectado: ${powerNow} W`,
+                        title: '¡ALERTA CRÍTICA!',
+                        html: `<b style="font-size: 2.5rem; color: #f43f5e;">${powerNow} W</b><br>${data.ai.reason}`,
                         icon: 'error',
-                        confirmButtonText: 'ENTENDIDO'
+                        background: '#1e293b',
+                        color: '#fff',
+                        confirmButtonText: 'ENTENDIDO (SILENCIAR)',
+                        confirmButtonColor: '#e11d48',
+                        backdrop: `rgba(244, 63, 94, 0.6)`,
+                        allowOutsideClick: false,
+                        showClass: { popup: 'animate__animated animate__headShake' }
                     }).then(() => {
                         lastAlertTimestamp = data.latest.created_at;
                         isSwalActive = false;
                     });
                 }
-            } else if (powerNow === 0) {
-                document.getElementById('ai-label').innerText = "OFFLINE / ESPERA";
-                document.getElementById('ai-card').className = "md:col-span-2 p-6 rounded-3xl border border-slate-700/50 bg-[#1E293B]";
+            } else {
+                // Volver a la normalidad si no hay anomalía o el dispositivo está en 0W
+                aiCard.className = "md:col-span-2 p-6 rounded-3xl border border-slate-700/50 bg-[#1E293B]";
+                aiLabel.innerText = powerNow === 0 ? "ESPERANDO DISPOSITIVO..." : "✓ CONSUMO ESTABLE";
+                aiLabel.className = "text-2xl font-bold text-emerald-500";
+                document.title = "EnergyDash | Live";
+                if (powerNow === 0) lastAlertTimestamp = null; 
             }
 
-        } catch (e) { console.error("Error Live:", e); }
+        } catch (e) { 
+            console.error("Error en el flujo live:", e); 
+        }
     }
 
-    // Intervalo de 1 segundo exacto para el efecto monitor
+    // Actualización cada 1 segundo exacto
     setInterval(updateDashboard, 1000);
     updateDashboard();
 </script>
