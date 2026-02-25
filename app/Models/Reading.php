@@ -13,6 +13,7 @@ class Reading {
             default => date('Y-m-d'),
         };
 
+        // Construcción de la URL de consulta
         $queryUrl = $this->url . "?created_at=gte." . $startDate . "T00:00:00&order=created_at.desc&limit=$limit&offset=$offset";
 
         $ch = curl_init($queryUrl);
@@ -25,8 +26,20 @@ class Reading {
         ]);
 
         $response = curl_exec($ch);
-        curl_close($ch);
 
-        return json_decode($response, true) ?? [];
+        // MANEJO DE ERRORES DE CONEXIÓN
+        if (curl_errno($ch)) {
+            // Si hay error de red (ej. timeout o DNS), devolvemos array vacío
+            return [];
+        }
+
+        // En PHP 8.0+, los recursos de curl son objetos que se cierran solos.
+        // En PHP 8.5, llamar a curl_close() lanza un aviso de "Deprecated".
+        // Lo eliminamos para evitar el Error 500.
+
+        $data = json_decode($response, true);
+
+        // Si el JSON es inválido o Supabase devuelve error, aseguramos un array
+        return is_array($data) ? $data : [];
     }
 }
