@@ -106,8 +106,8 @@
         </main>
     </div>
 
-    <script>
-        // 1. Configuración de la Gráfica
+    |<script>
+        // 1. Inicialización de la Gráfica
         const ctx = document.getElementById('mainEnergyChart').getContext('2d');
         const gradient = ctx.createLinearGradient(0, 0, 0, 300);
         gradient.addColorStop(0, 'rgba(56, 189, 248, 0.3)');
@@ -125,7 +125,8 @@
                     fill: true,
                     backgroundColor: gradient,
                     tension: 0.4,
-                    pointRadius: 2
+                    pointRadius: 2,
+                    pointBackgroundColor: '#38BDF8'
                 }]
             },
             options: { 
@@ -136,17 +137,23 @@
                 scales: {
                     y: { 
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        // El secreto de los picos: auto-ajuste de escala
+                        ticks: { color: '#94a3b8' },
+                        beginAtZero: false,
                         suggestedMin: (val) => val.min - 10,
                         suggestedMax: (val) => val.max + 10
                     },
-                    x: { grid: { display: false } }
+                    x: { 
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8' }
+                    }
                 }
             }
         });
 
+        // 2. Variables de Control de Alertas
         const alertSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-        let isSwalActive = false;
+        let isSwalActive = false; 
+        let lastAlertTimestamp = null; // Guarda la hora de la anomalía ya aceptada
 
         async function updateDashboard() {
             try {
@@ -155,7 +162,7 @@
 
                 if (!data || !data.latest) return;
 
-                // Actualizar Widgets
+                // Actualizar Widgets Numéricos
                 document.getElementById('val-power').innerText = parseFloat(data.latest.power).toFixed(1);
                 document.getElementById('val-current').innerText = parseFloat(data.latest.current).toFixed(2);
                 document.getElementById('ai-stats').innerText = `Z-Score: ${data.ai.score} | Media: ${data.ai.mean}W`;
@@ -163,46 +170,59 @@
                 const aiCard = document.getElementById('ai-card');
                 const aiLabel = document.getElementById('ai-label');
 
-                // Lógica de Alertas Impactantes
+                // --- LÓGICA DE ALERTAS INTELIGENTE ---
                 if (data.ai.is_anomaly) {
+                    // UI en estado de alerta (Rojo parpadeante)
                     aiCard.className = "md:col-span-2 p-6 rounded-3xl border transition-all duration-500 bg-rose-600 border-white animate-pulse shadow-[0_0_50px_rgba(244,63,94,0.6)]";
                     aiLabel.innerText = data.ai.reason; 
                     aiLabel.className = "text-2xl font-black text-white";
-                    document.title = "⚠️ ¡EMERGENCIA DETECTADA!";
+                    document.title = "⚠️ ANOMALÍA DETECTADA";
 
-                    if (!isSwalActive) {
+                    // Solo mostramos SweetAlert si es una anomalía NUEVA (diferente timestamp)
+                    if (!isSwalActive && data.latest.created_at !== lastAlertTimestamp) {
                         isSwalActive = true;
-                        alertSound.play().catch(e => {});
+                        alertSound.play().catch(e => console.log("Audio bloqueado"));
+
                         Swal.fire({
-                            title: '¡ALERTA CRÍTICA!',
-                            html: `<b style="font-size: 2rem; color: #f43f5e;">${data.latest.power} W</b><br>${data.ai.reason}`,
+                            title: '¡ALERTA DE SISTEMA!',
+                            html: `<b style="font-size: 2rem; color: #f43f5e;">${data.latest.power} W</b><br>${data.ai.reason}<br><small style="color:#94a3b8">Registro: ${data.latest.created_at}</small>`,
                             icon: 'error',
                             background: '#1e293b',
                             color: '#fff',
                             confirmButtonText: 'ENTENDIDO',
                             confirmButtonColor: '#e11d48',
                             backdrop: `rgba(244, 63, 94, 0.4)`,
+                            allowOutsideClick: false,
                             showClass: { popup: 'animate__animated animate__headShake' }
-                        }).then(() => { isSwalActive = false; });
+                        }).then(() => {
+                            // Al cerrar, guardamos este timestamp para no repetir la alerta
+                            lastAlertTimestamp = data.latest.created_at;
+                            isSwalActive = false;
+                        });
                     }
                 } else {
+                    // Estado Normal (Verde)
                     aiCard.className = "md:col-span-2 p-6 rounded-3xl border border-slate-700/50 bg-[#1E293B]";
                     aiLabel.innerText = "✓ CONSUMO ESTABLE";
                     aiLabel.className = "text-2xl font-bold text-emerald-500";
-                    document.title = "EnergyDash | Live Monitor";
+                    document.title = "EnergyDash | Live";
+                    
+                    // Si el sistema vuelve a la normalidad, limpiamos el historial de alertas
+                    lastAlertTimestamp = null;
                 }
 
-                // Actualizar Gráfica: Volteamos los datos para que el tiempo fluya a la derecha
+                // 3. Actualizar Gráfica
                 const readings = [...data.readings].reverse();
                 energyChart.data.labels = readings.map(r => new Date(r.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}));
                 energyChart.data.datasets[0].data = readings.map(r => r.power);
                 energyChart.update('none');
 
             } catch (e) { 
-                console.error("Fallo de comunicación:", e); 
+                console.error("Error en monitoreo:", e); 
             }
         }
 
+        // Monitoreo cada 1 segundo
         setInterval(updateDashboard, 1000);
         updateDashboard();
     </script>
