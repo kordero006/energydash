@@ -2,9 +2,8 @@
 namespace App\Models;
 
 class Reading {
-    private $url = "https://afvthfxrwmkkepzqvoua.supabase.co/rest/v1/readings";
-    private $key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmdnRoZnhyd21ra2VwenF2b3VhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNzgzOTksImV4cCI6MjA4Njg1NDM5OX0.Aidqkv6AHDZ0-Oc0CQSrILfeL2JThEZMkh6mWYXJdHc";
-
+    private $url = "https://voakbbekvscxyhafwwij.supabase.co/rest/v1/energy_readings";
+    private $key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZvYWtiYmVrdnNjeHloYWZ3d2lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjYwNzIsImV4cCI6MjA5MDc0MjA3Mn0.bWeImywvM9hrvEKYCVsFMbm7krJEWnlr85cHsNu8adY";
     public function getData($filter = 'today', $limit = 10, $offset = 0) {
         $startDate = match($filter) {
             'week'  => date('Y-m-d', strtotime('-7 days')),

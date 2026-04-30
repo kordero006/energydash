@@ -38,6 +38,8 @@
                 </div>
             </header>
 
+            <?php $ai = $ai ?? ['is_anomaly' => false, 'reason' => '✓ CONSUMO ESTABLE', 'score' => 0, 'mean' => 0]; ?>
+
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
                 <div class="bg-[#1E293B] p-6 rounded-3xl border border-slate-700/50 shadow-xl">
                     <p class="text-slate-400 text-sm font-medium mb-1">Potencia Activa</p>
