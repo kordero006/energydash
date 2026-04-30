@@ -57,11 +57,11 @@
                         <div class="flex bg-slate-800/80 p-1 rounded-2xl border border-slate-700">
                             <a href="?device=esp32_casa_1&view=<?= $currentFilter ?>" 
                                class="px-4 py-2 rounded-xl text-xs font-bold transition-all <?= ($deviceId == 'esp32_casa_1') ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'text-slate-100 hover:text-white' ?>">
-                                CASA 1
+                                DISPOSITIVO 1
                             </a>
                             <a href="?device=esp32_casa_2&view=<?= $currentFilter ?>" 
                                class="px-4 py-2 rounded-xl text-xs font-bold transition-all <?= ($deviceId == 'esp32_casa_2') ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'text-slate-100 hover:text-white' ?>">
-                                OFICINA
+                                DISPOSITIVO 2
                             </a>
                         </div>
                         <span class="text-slate-400 text-sm font-medium">|</span>
