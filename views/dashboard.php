@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -18,6 +20,14 @@
         ::-webkit-scrollbar-track { background: #1E293B; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #38BDF8; }
+        .swal2-popup.energy-alert { border: 1px solid rgba(244, 63, 94, 0.35); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.7); }
+        .emergency-map { height: 340px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.24); margin-top: 18px; }
+        .tech-grid-alert { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 14px; text-align: left; }
+        .tech-card-alert { background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 14px; padding: 12px; }
+        .tech-card-alert h4 { margin: 0 0 6px; color: #22d3ee; font-size: 0.92rem; font-weight: 900; }
+        .tech-card-alert p { margin: 4px 0; color: #e2e8f0; font-size: 0.8rem; font-weight: 700; }
+        .tech-actions-alert { display: flex; gap: 8px; margin-top: 10px; }
+        .tech-actions-alert a { flex: 1; border-radius: 8px; color: #fff; font-size: 0.78rem; font-weight: 900; padding: 7px 8px; text-align: center; text-decoration: none; }
     </style>
 </head>
 <body class="text-slate-100 min-h-screen">
@@ -212,6 +222,161 @@
     const alertSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
     let isSwalActive = false; 
     let lastAlertTimestamp = null;
+    const TECH_SEARCH_RADIUS_M = 5000;
+    const FALLBACK_LOCATION = { lat: 19.4326, lon: -99.1332, label: 'CDMX' };
+
+    function getLaptopLocation() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve({ ...FALLBACK_LOCATION, source: 'fallback' });
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => resolve({
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude,
+                    label: 'Tu dispositivo',
+                    source: 'browser'
+                }),
+                () => resolve({ ...FALLBACK_LOCATION, source: 'fallback' }),
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 300000 }
+            );
+        });
+    }
+
+    function alertIcon(color) {
+        return L.divIcon({
+            html: `<div style="width:18px;height:18px;border-radius:999px;background:${color};border:3px solid #fff;box-shadow:0 0 14px ${color};"></div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            className: ''
+        });
+    }
+
+    function distanceKm(lat1, lon1, lat2, lon2) {
+        const toRad = (value) => value * Math.PI / 180;
+        const earthKm = 6371;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[char]));
+    }
+
+    async function fetchNearbyTechnicians(lat, lon) {
+        const query = `
+            [out:json][timeout:18];
+            (
+                node["craft"="electrician"](around:${TECH_SEARCH_RADIUS_M},${lat},${lon});
+                node["office"="electrician"](around:${TECH_SEARCH_RADIUS_M},${lat},${lon});
+                node["shop"="electronics"](around:${TECH_SEARCH_RADIUS_M},${lat},${lon});
+                node["shop"="electrical"](around:${TECH_SEARCH_RADIUS_M},${lat},${lon});
+            );
+            out body;
+        `;
+
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            body: query
+        });
+
+        if (!response.ok) throw new Error('No se pudo consultar OpenStreetMap.');
+        const data = await response.json();
+        return (data.elements || [])
+            .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lon))
+            .map((item) => ({ ...item, km: distanceKm(lat, lon, item.lat, item.lon) }))
+            .sort((a, b) => a.km - b.km)
+            .slice(0, 6);
+    }
+
+    function renderTechnicianCards(technicians, originLat, originLon) {
+        const list = document.getElementById('alert-tech-list');
+        if (!list) return;
+
+        if (!technicians.length) {
+            const searchUrl = `https://www.google.com/maps/search/electricistas/@${originLat},${originLon},15z`;
+            list.innerHTML = `
+                <div class="tech-card-alert" style="grid-column:1/-1;">
+                    <h4>Sin resultados automaticos</h4>
+                    <p>Abre Google Maps para ver electricistas cerca de la ubicacion detectada.</p>
+                    <div class="tech-actions-alert">
+                        <a style="background:#3b82f6;" href="${searchUrl}" target="_blank" rel="noopener">Buscar en Maps</a>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        list.innerHTML = technicians.map((tech) => {
+            const name = escapeHtml(tech.tags?.name || 'Tecnico electrico');
+            const phone = escapeHtml(tech.tags?.phone || tech.tags?.['contact:phone'] || '');
+            const gmaps = `https://www.google.com/maps?q=${tech.lat},${tech.lon}`;
+            const osm = `https://www.openstreetmap.org/?mlat=${tech.lat}&mlon=${tech.lon}#map=17/${tech.lat}/${tech.lon}`;
+
+            return `
+                <div class="tech-card-alert">
+                    <h4>${name}</h4>
+                    <p>${tech.km.toFixed(2)} km</p>
+                    ${phone ? `<p>${phone}</p>` : ''}
+                    <div class="tech-actions-alert">
+                        <a style="background:#3b82f6;" href="${gmaps}" target="_blank" rel="noopener">Google Maps</a>
+                        <a style="background:#84cc16;" href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function renderEmergencyMap() {
+        const status = document.getElementById('alert-location-status');
+        const mapEl = document.getElementById('alert-map');
+        if (!mapEl || typeof L === 'undefined') return;
+
+        const location = await getLaptopLocation();
+        if (status) {
+            status.innerText = location.source === 'browser'
+                ? 'Ubicacion tomada de esta laptop.'
+                : 'No se concedio ubicacion; usando referencia CDMX.';
+        }
+
+        const map = L.map(mapEl, { zoomControl: true }).setView([location.lat, location.lon], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        L.marker([location.lat, location.lon], { icon: alertIcon('#22d3ee') })
+            .addTo(map)
+            .bindPopup(`<strong>${location.label}</strong>`)
+            .openPopup();
+
+        setTimeout(() => map.invalidateSize(), 100);
+
+        try {
+            const technicians = await fetchNearbyTechnicians(location.lat, location.lon);
+            renderTechnicianCards(technicians, location.lat, location.lon);
+
+            technicians.forEach((tech) => {
+                const name = escapeHtml(tech.tags?.name || 'Tecnico electrico');
+                L.marker([tech.lat, tech.lon], { icon: alertIcon('#f59e0b') })
+                    .addTo(map)
+                    .bindPopup(`<strong>${name}</strong><br>${tech.km.toFixed(2)} km`);
+            });
+        } catch (error) {
+            renderTechnicianCards([], location.lat, location.lon);
+            if (status) status.innerText += ' Overpass no respondio; se dejo busqueda directa en Maps.';
+        }
+    }
 
     async function updateDashboard() {
         try {
@@ -258,12 +423,24 @@
                     alertSound.play().catch(e => {});
                     Swal.fire({
                         title: '¡EMERGENCIA!',
-                        html: `<span style="font-size: 2rem; font-weight: 900; color: #f43f5e;">${powerNow} Watts</span><br><p style="color: #64748b">${data.ai.reason}</p>`,
+                        html: `
+                            <span style="font-size: 2rem; font-weight: 900; color: #f43f5e;">${powerNow} Watts</span>
+                            <p style="color: #cbd5e1; margin: 8px 0 0;">${data.ai.reason}</p>
+                            <p id="alert-location-status" style="color: #94a3b8; font-size: .82rem; font-weight: 800; margin: 10px 0 0;">Solicitando ubicacion de la laptop...</p>
+                            <div id="alert-map" class="emergency-map"></div>
+                            <h3 style="color: #22d3ee; text-align: left; margin: 18px 0 0; font-size: 1.05rem; font-weight: 900;">Tecnicos disponibles cerca</h3>
+                            <div id="alert-tech-list" class="tech-grid-alert">
+                                <div class="tech-card-alert" style="grid-column:1/-1;"><p>Buscando electricistas cercanos...</p></div>
+                            </div>
+                        `,
                         icon: 'error',
+                        customClass: { popup: 'energy-alert' },
+                        width: 980,
                         background: '#1e293b',
                         color: '#fff',
                         confirmButtonText: 'ENTENDIDO',
-                        confirmButtonColor: '#e11d48'
+                        confirmButtonColor: '#e11d48',
+                        didOpen: () => { renderEmergencyMap(); }
                     }).then(() => {
                         lastAlertTimestamp = data.latest.created_at;
                         isSwalActive = false;

@@ -12,16 +12,17 @@ error_reporting(E_ALL);
 
 // 3. CAPTURA DE PARÁMETROS
 $view = $_GET['view'] ?? 'today';
+$deviceId = $_GET['device'] ?? 'esp32_casa_1';
 
 $model = new Reading();
-$data = $model->getData($view, 20, 0);
+$data = $model->getData($view, $deviceId, 20, 0);
 
 // Aseguramos que $data sea un array para que no rompa el count() o el [0]
 if (!is_array($data)) { $data = []; }
 
 // 4. FALLBACK: Si no hay datos, buscar en 'all'
 if (empty($data) && $view !== 'all') {
-    $data = $model->getData('all', 20, 0);
+    $data = $model->getData('all', $deviceId, 20, 0);
     if (!is_array($data)) { $data = []; }
 }
 
